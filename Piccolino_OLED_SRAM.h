@@ -2,6 +2,7 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <Piccolino_RAM.h>
+#include "font.h"
 
 #ifndef _Piccolino_OLED_SRAM_H
 #define _Piccolino_OLED_SRAM_H
@@ -72,10 +73,14 @@ public:
   void clearpart(int from, int tto);
   void clearLine(byte line);
   void drawPixel(int16_t x, int16_t y, uint16_t color);
+#if !defined(FONT_ON_SD)
   void drawChar(int16_t x, int16_t y, unsigned char c, uint16_t color, uint16_t bg, uint8_t size);
+#endif
+  void drawCharWithFont(int16_t x, int16_t y, unsigned char c, uint16_t color, uint16_t bg, uint8_t size);
   void setCursor(int16_t x, int16_t y);
   void fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
   void drawRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
+  boolean setFont(uint8_t font, const char *file);
   void setTextSize(uint8_t s);
   void setTextColor(uint16_t c);
   void setTextColor(uint16_t c, uint16_t bg);
@@ -90,6 +95,14 @@ protected:
     int16_t cursor_x, cursor_y, textcolor, textbgcolor;
     uint8_t textsize;
     boolean  wrap; // If set, 'wrap' text at right edge of display
+    uint8_t _font;
+#if defined(FONT_ON_SD)
+    File _fontFile;
+    uint8_t _buff[16]; // font buffer
+#else
+    uint8_t _fontFile;
+    uint8_t _buff[3];
+#endif
 
 private:
   int8_t sclk, dc, rst, cs;

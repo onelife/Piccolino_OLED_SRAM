@@ -19,9 +19,17 @@
 
 
 #include "Piccolino_OLED_SRAM.h"
+#if defined(FONT_ON_SD)
+#include <SdFat.h>
+#define SD_CS_PIN 5
+#else
 #include "glcdfont.c"
+#endif
 
 Piccolino_RAM  _v_ram;
+#if defined(FONT_ON_SD)
+SdFat _sd;
+#endif
 
 Piccolino_OLED_SRAM::Piccolino_OLED_SRAM() {
 	// nothing here now- all done in 'begin'
@@ -34,8 +42,13 @@ void Piccolino_OLED_SRAM::begin(uint8_t vccstate, uint8_t i2caddr) {
     cursor_y=0;
     textcolor=WHITE;
     textbgcolor=BLACK;
+    _font = 0;
+    _buff[0] = 0;
 
     _v_ram.begin(ADDR_VIDEOBUFFER);
+#if defined(FONT_ON_SD)
+    _sd.begin(SD_CS_PIN);
+#endif
 
     // set pin directions
     // I2C Init
@@ -281,13 +294,13 @@ void Piccolino_OLED_SRAM::clear()
 }
 
 // Original concept borrowed from Adafruit's GFX library
+#if !defined(FONT_ON_SD)
 void Piccolino_OLED_SRAM::drawChar(int16_t x, int16_t y, unsigned char c, uint16_t color, uint16_t bg, uint8_t size) {
-
   for (int8_t i=0; i<6; i++ ) {
     uint8_t line;
-    if (i == 5) 
+    if (i == 5)
       line = 0x0;
-    else 
+    else
       line = pgm_read_byte(font+(c*5)+i);
 
     for (int8_t j = 0; j<8; j++) {
@@ -296,7 +309,7 @@ void Piccolino_OLED_SRAM::drawChar(int16_t x, int16_t y, unsigned char c, uint16
           drawPixel(x+i, y+j, color);
         else {  // big size
           fillRect(x+(i*size), y+(j*size), size, size, color);
-        } 
+        }
       } else if (bg != color) {
         if (size == 1) // default size
           drawPixel(x+i, y+j, bg);
@@ -308,10 +321,211 @@ void Piccolino_OLED_SRAM::drawChar(int16_t x, int16_t y, unsigned char c, uint16
     }
   }
 }
+#endif // !FONT_ON_SD
+
+void Piccolino_OLED_SRAM::drawCharWithFont(int16_t x, int16_t y, unsigned char c, uint16_t color, uint16_t bg, uint8_t size) {
+#if defined(USE_FONT_SIZE_12)
+    Asscii_12_Font ascii12;
+#if defined(FONT_ON_SD)
+    Hkz_12_Font hzk12;
+#endif
+#endif
+#if defined(USE_FONT_SIZE_16)
+    Asscii_16_Font ascii16;
+#if defined(FONT_ON_SD)
+    Hkz_16_Font hzk16;
+#endif
+#endif
+    uint8_t width, high;
+
+    switch (_font) {
+#if defined(USE_FONT_SIZE_12)
+        case ASCII_12 :
+            high = ascii12.high;
+            break;
+#if defined(FONT_ON_SD)
+        case HZK_12 :
+            high = hzk12.high;
+            break;
+#endif
+#endif
+#if defined(USE_FONT_SIZE_16)
+        case ASCII_16 :
+            high = ascii16.high;
+            break;
+#if defined(FONT_ON_SD)
+        case HZK_16 :
+            high = hzk16.high;
+            break;
+#endif
+#endif
+    }
+
+    if (c == '\n') {
+        cursor_y += high + 1;
+        cursor_x = 0;
+        _buff[0] = 0;
+        return;
+    } else if (c == '\r') {
+        // skip em
+        _buff[0] = 0;
+        return;
+    }
+    
+    switch (_font) {
+#if defined(USE_FONT_SIZE_12)
+        case ASCII_12 :
+            if (!ascii12.setChar(&c, 1, &_fontFile)) {
+                return;
+            }
+            width = ascii12.getWidth();
+            break;
+#if defined(FONT_ON_SD)
+        case HZK_12 :
+            _buff[++_buff[0]] = c;
+            if (_buff[0] < 2) {
+                return;
+            }
+            _buff[0] = 0;
+            if (!hzk12.setChar(&_buff[1], 2, &_fontFile)) {
+                return;
+            }
+            width = hzk12.getWidth();
+            break;
+#endif
+#endif
+#if defined(USE_FONT_SIZE_16)
+        case ASCII_16 :
+            if (!ascii16.setChar(&c, 1, &_fontFile)) {
+                return;
+            }
+            width = ascii16.getWidth();
+            break;
+#if defined(FONT_ON_SD)
+        case HZK_16 :
+            _buff[++_buff[0]] = c;
+            if (_buff[0] < 2) {
+                return;
+            }
+            _buff[0] = 0;
+            if (!hzk16.setChar(&_buff[1], 2, &_fontFile)) {
+                return;
+            }
+            width = hzk16.getWidth();
+            break;
+#endif
+#endif
+    }
+
+    uint16_t font_bits = high * width;
+    uint16_t font_bytes = (font_bits + 7) / 8;
+    uint8_t draw_bit = 0;
+    uint8_t draw_high = 0;
+#if defined(FONT_ON_SD)
+    uint8_t read_len;
+#else
+    const uint8_t read_len = 1;
+#endif
+
+    for (uint8_t i = 0; i < font_bytes;) {
+#if defined(FONT_ON_SD)
+        if (read_len > font_bytes - i) {
+            read_len = font_bytes - i;
+        } else {
+            read_len = sizeof(_buff);
+        }
+        switch (_font) {
+#if defined(USE_FONT_SIZE_12)
+            case ASCII_12 :
+                ascii12.getData(_buff, i, read_len);
+                break;
+            case HZK_12 :
+                hzk12.getData(_buff, i, read_len);
+                break;
+#endif 
+#if defined(USE_FONT_SIZE_16)
+            case ASCII_16 :
+                ascii16.getData(_buff, i, read_len);
+                break;
+            case HZK_16 :
+                hzk16.getData(_buff, i, read_len);
+                break;
+#endif // USE_FONT_SIZE_16
+        }
+#else // FONT_ON_SD
+        switch (_font) {
+#if defined(USE_FONT_SIZE_12)
+            case ASCII_12 :
+                ascii12.getData(_buff, i);
+                break;
+#endif
+#if defined(USE_FONT_SIZE_16)
+            case ASCII_16 :
+                ascii16.getData(_buff, i);
+                break;
+#endif
+        }
+#endif // FONT_ON_SD
+        for (uint8_t j = 0; j < read_len; j++) {
+            for (uint8_t k = 0; k < 8; k++) {
+                if (_buff[j] & 0x80) {
+                    drawPixel(x + draw_bit, y + draw_high, color);
+                }
+                if (--font_bits <= 0) {
+                    break;
+                }
+                _buff[j] <<= 1;
+                if (++draw_bit >= width) {
+                    draw_bit = 0;
+                    draw_high++;
+                }
+            }
+        }
+        i += read_len;
+    }
+
+    cursor_x += width + 1;
+    if (wrap && (cursor_x > (SSD1306_LCDWIDTH - width))) {
+        cursor_y += high + 1;
+        cursor_x = 0;
+    }
+}
 
 void Piccolino_OLED_SRAM::setCursor(int16_t x, int16_t y) {
   cursor_x = x;
   cursor_y = y;
+}
+
+boolean Piccolino_OLED_SRAM::setFont(uint8_t font, const char *file) {
+#if defined(FONT_ON_SD)
+    if (_fontFile) {
+        _fontFile.close();
+    }
+    _fontFile = _sd.open(file);
+    if (!_fontFile) {
+        return false;
+    }
+#endif
+    _buff[0] = 0;
+    _font = font & FONT_MASK;
+    switch (_font) {
+#if defined(USE_FONT_SIZE_12)
+        case ASCII_12 :
+#if defined(FONT_ON_SD)
+        case HZK_12 :
+#endif
+#endif
+#if defined(USE_FONT_SIZE_16)
+        case ASCII_16 :
+#if defined(FONT_ON_SD)
+        case HZK_16 :
+#endif
+#endif
+            return true;
+        default :
+            return false;
+    }
+
 }
 
 void Piccolino_OLED_SRAM::setTextSize(uint8_t s) {
@@ -381,6 +595,12 @@ void Piccolino_OLED_SRAM::drawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y
 
 
 size_t Piccolino_OLED_SRAM::write(uint8_t c) {
+  if (_font) {
+    drawCharWithFont(cursor_x, cursor_y, c, textcolor, textbgcolor, textsize);
+    return 1;
+  }
+
+#if !defined(FONT_ON_SD)
   if (c == '\n') {
     cursor_y += textsize*8;
     cursor_x  = 0;
@@ -395,6 +615,7 @@ size_t Piccolino_OLED_SRAM::write(uint8_t c) {
     }
   }
   return 1;
+#endif
 }
 
 Piccolino_OLED_SRAM::~Piccolino_OLED_SRAM()
